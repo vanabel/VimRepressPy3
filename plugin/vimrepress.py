@@ -9,7 +9,7 @@ import sys
 import mimetypes
 import webbrowser
 import tempfile
-from configparser import SafeConfigParser
+from configparser import ConfigParser
 
 # -------------------------------- CONSTANTS --------------------------------
 
@@ -754,7 +754,7 @@ def blog_edit(edit_type, post_id):
     vim.command('setl textwidth=0')
     for v in list(VRP_CONST.LIST_VIEW_KEY_MAP().values()):
         if vim.eval("mapcheck('%s')" % v):
-            vim.command('unmap <buffer> %s' % v)
+            vim.command('silent! unmap <buffer> %s' % v)
 
 
 """
