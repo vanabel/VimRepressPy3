@@ -2,6 +2,7 @@
 import vim
 import urllib.request, urllib.parse, urllib.error
 import xmlrpc.client
+import socket
 import re
 import os
 import pprint
@@ -9,7 +10,18 @@ import sys
 import mimetypes
 import webbrowser
 import tempfile
-from configparser import ConfigParser
+import configparser
+
+try:
+    import markdown
+except ImportError:
+    class markdown_stub(object):
+        def markdown(self, markdown, extensions, extension_configs):
+            raise VRP_Exception("The package python-markdown is "
+                    "required and is either not present or not properly "
+                    "installed.")
+
+    markdown = markdown_stub()
 
 # -------------------------------- CONSTANTS --------------------------------
 
@@ -97,20 +109,6 @@ def exception_check(func):
     return __check
 
 # ---------------------------------- /UTLILS ----------------------------------
-
-try:
-    import markdown
-except ImportError:
-    try:
-        import markdown2 as markdown
-    except ImportError:
-        class markdown_stub(object):
-            def markdown(self, n):
-                raise VRP_Exception("The package python-markdown is "
-                        "required and is either not present or not properly "
-                        "installed.")
-
-        markdown = markdown_stub()
 
 class DataObject(object):
 
@@ -216,8 +214,15 @@ class DataObject(object):
     def config(self):
         if self.__config is None or len(self.__config) == 0:
 
-            confpsr = ConfigParser()
+            confpsr = configparser.ConfigParser()
             confile = os.path.expanduser("~/.vimpressrc")
+            o_stat = os.stat(confile)
+            flags_ugo = 0x1FF & o_stat.st_mode
+            if flags_ugo != 0o600:
+                raise VRP_Exception(
+                        "Please set permissions on ~/.vimpressrc to 600.  "
+                        "(cmd: chmod 600 ~/.vimpressrc)")
+
             conf_options = ("blog_url", "username", "password")
 
             if os.path.exists(confile):
@@ -253,6 +258,7 @@ class wp_xmlrpc(object):
         self.username = username
         self.password = password
         p = xmlrpc.client.ServerProxy(os.path.join(blog_url, "xmlrpc.php"))
+        socket.setdefaulttimeout(5)
         self.mw_api = p.metaWeblog
         self.wp_api = p.wp
         self.mt_api = p.mt
@@ -387,11 +393,17 @@ class ContentStruct(object):
                 vim.current.buffer[end + 1:])
 
     def fill_buffer(self):
+
         meta = dict(strid="", title="", slug="",
                 cats="", tags="", editformat="HTML", edittype="")
         meta.update(self.buffer_meta)
         meta_text = self.META_TEMPLATE.format(**meta).splitlines()
-        vim.command("set ft=html")
+
+        if meta['editformat'].lower() == "markdown":
+            vim.command("set ft=markdown")
+        else:
+            vim.command("set ft=html")
+
         vim.current.buffer[0] = meta_text[0]
         vim.current.buffer.append(meta_text[1:])
         content = self.buffer_meta.get("content", ' ').splitlines()
@@ -443,7 +455,17 @@ class ContentStruct(object):
                 field = dict(key=VRP_CONST.CUSTOM_FIELD_KEY(), value=rawtext)
                 struct["custom_fields"].append(field)
 
-            struct["description"] = self.html_text = markdown.markdown(rawtext)
+            struct["description"] = self.html_text = markdown.markdown(
+                    rawtext,
+                    extensions=['fenced_code','codehilite'],
+                    extension_configs={
+                        'codehilite': {
+                            'use_pygments': True,
+                            'css_class':    'pygment',
+                            'noclasses':    False,
+                            'guess_lang':   False,
+                            'linenums':     False
+                        }})
         else:
             struct["description"] = self.html_text = rawtext
 
@@ -754,7 +776,7 @@ def blog_edit(edit_type, post_id):
     vim.command('setl textwidth=0')
     for v in list(VRP_CONST.LIST_VIEW_KEY_MAP().values()):
         if vim.eval("mapcheck('%s')" % v):
-            vim.command('silent! unmap <buffer> %s' % v)
+            vim.command('unmap <buffer> %s' % v)
 
 
 """
